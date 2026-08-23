@@ -9,8 +9,26 @@ import { syncUnraid } from './sync/unraid.js';
 import { syncIcons } from './sync/icons.js';
 import { getApps } from './db.js';
 
+const lastSync = { startedAt: null, finishedAt: null, results: {} };
+
 async function syncAll() {
-  await Promise.allSettled([syncCoolify(), syncCloudflare(), syncUnraid(), syncIcons()]);
+  lastSync.startedAt = new Date().toISOString();
+  const jobs = [
+    ['coolify', syncCoolify],
+    ['cloudflare', syncCloudflare],
+    ['unraid', syncUnraid],
+    ['icons', syncIcons],
+  ];
+  await Promise.all(jobs.map(async ([name, fn]) => {
+    try {
+      await fn();
+      lastSync.results[name] = 'ok';
+    } catch (err) {
+      lastSync.results[name] = `error: ${err.message}`;
+      console.error(`${name} sync failed:`, err.message);
+    }
+  }));
+  lastSync.finishedAt = new Date().toISOString();
 }
 
 const app = express();
@@ -28,6 +46,10 @@ app.get('/api/apps', async (req, res) => {
     console.error('API error:', err);
     res.status(500).json({ error: 'Failed to fetch apps' });
   }
+});
+
+app.get('/api/health', (req, res) => {
+  res.json({ status: 'ok', uptime: process.uptime(), lastSync });
 });
 
 app.post('/api/sync/now', async (req, res) => {
