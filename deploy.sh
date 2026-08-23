@@ -1,0 +1,61 @@
+#!/bin/bash
+# LaunchBase Coolify Deployment Script
+# This script helps you deploy the LaunchBase dashboard to Coolify
+
+set -e
+
+echo "=== LaunchBase Coolify Deployment ==="
+
+# Configuration
+COOLIFY_INSTANCE="https://coolify.yourdomain.com"
+TOKEN="your_coolify_api_token_here"
+
+# Read current directory
+PROJECT_DIR="$(pwd)"
+
+echo ""
+echo "1. Creating new Coolify app via Docker Compose..."
+echo ""
+echo "   Please log into your Coolify dashboard at: $COOLIFY_INSTANCE"
+echo ""
+echo "   Steps:"
+echo "   1. Click 'New Project' (or select existing project)"
+echo "   2. Click 'New App'"
+echo "   3. Select 'Docker Compose' as the deployment method"
+echo "   4. Paste the following docker-compose.yml content:"
+echo ""
+cat "$PROJECT_DIR/docker-compose.yml"
+echo ""
+echo "   5. Add the following Environment Variables:"
+echo "   COOLIFY_BASE_URL=https://coolify.yourdomain.com"
+echo "   COOLIFY_API_TOKEN=your_coolify_api_token"
+echo "   CF_API_TOKEN=your_cloudflare_api_token"
+echo "   CF_ACCOUNT_ID=your_cloudflare_account_id"
+echo "   UNRAID_HOST=your_unraid_ip"
+echo "   UNRAID_PORT=22"
+echo "   UNRAID_USER=root"
+echo "   UNRAID_PASSWORD=your_unraid_password"
+echo "   SYNC_SECRET=your_sync_secret"
+echo ""
+echo "   6. Click 'Create' or 'Deploy'"
+echo "   7. Wait for the build to complete (usually 1-2 minutes)"
+echo ""
+echo "2. Cloudflare Tunnel Setup..."
+echo ""
+echo "   To access your dashboard at dash.jewellcore.com:"
+echo "   1. Log into Cloudflare Dashboard: https://dash.cloudflare.com"
+echo "   2. Go to Zero Trust → Tunnels → Create a tunnel"
+echo "   3. Name: launchbase-dashboard"
+echo "   4. Select 'Public Network' and click 'Create tunnel'"
+echo "   5. In the tunnel, click 'Add a public hostname'"
+echo "   6. Subdomain: dash"
+echo "   7. Domain: jewellcore.com (or your root domain)"
+echo "   8. Service: HTTP"
+echo "   9. URL: http://YOUR_COOLIFY_APP_URL (e.g., http://launchbase.coollify.io)"
+echo "   10. Click 'Save'"
+echo ""
+echo "3. Access Your Dashboard..."
+echo ""
+echo "   Visit: https://dash.jewellcore.com"
+echo ""
+echo "=== Deployment Complete ==="
