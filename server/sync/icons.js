@@ -56,28 +56,34 @@ function normalize(s) {
   return String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
 }
 
-// Match each app's name to a dashboard-icons slug and persist it
+// Match each app's name to a dashboard-icons slug and persist it.
+// Re-runs every sync: fills missing icons and replaces slugs that don't exist
+// in the icon set (e.g. legacy "unraid-<container>" placeholders).
 export async function resolveAppIcons() {
   if (!metadataCache) return;
   try {
-    const apps = await getApps();
+    const apps = await getApps({ includeHidden: true });
     const keys = Object.keys(metadataCache);
     const normKeys = new Map(keys.map(k => [normalize(k), k]));
 
     for (const app of apps) {
       const n = normalize(app.name);
-      if (!n || (app.icon && app.icon !== 'default')) continue;
+      if (!n) continue;
+      if (app.icon && metadataCache[app.icon]) continue; // already a valid slug
 
-      let match = normKeys.get(n);                    // exact
-      if (!match) {
-        match = keys.find(k => {                      // containment heuristics
+      let match = normKeys.get(n);                       // 1. exact normalized match
+      if (!match) {                                      // 2. containment, closest length wins
+        const candidates = keys.filter(k => {
           const nk = normalize(k);
           return nk.length >= 4 && (n.includes(nk) || nk.includes(n));
         });
+        candidates.sort((a, b) => normalize(a).length - normalize(b).length);
+        match = candidates[0] || null;
       }
 
-      if (match) {
-        await updateApp(app.id, { icon: match });
+      const newIcon = match || 'default';
+      if (newIcon !== app.icon) {
+        await updateApp(app.id, { icon: newIcon });
       }
     }
     console.log('Icon resolution pass complete');

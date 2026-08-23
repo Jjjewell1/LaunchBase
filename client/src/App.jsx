@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { RefreshCw, Search, ExternalLink } from 'lucide-react';
+import { RefreshCw, Search, ExternalLink, EyeOff, Eye } from 'lucide-react';
 import './index.css';
 
 const SOURCE_META = {
@@ -37,6 +37,7 @@ const DashboardApp = () => {
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
   const [query, setQuery] = useState('');
+  const [showHidden, setShowHidden] = useState(false);
   const [error, setError] = useState(null);
 
   const fetchApps = async () => {
@@ -49,6 +50,21 @@ const DashboardApp = () => {
       setError(err.message);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const setHidden = async (app, hidden) => {
+    setApps(prev => prev.map(a => (a.id === app.id ? { ...a, hidden: hidden ? 1 : 0 } : a)));
+    try {
+      const res = await fetch(`/api/apps/${app.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ hidden }),
+      });
+      if (!res.ok) throw new Error(`API ${res.status}`);
+    } catch (err) {
+      alert('Could not update app: ' + err.message);
+      fetchApps();
     }
   };
 
@@ -90,9 +106,13 @@ const DashboardApp = () => {
     return q ? apps.filter(a => a.name.toLowerCase().includes(q)) : apps;
   }, [apps, query]);
 
+  const visibleApps = useMemo(() => filtered.filter(a => !a.hidden), [filtered]);
+  const hiddenApps = useMemo(() => filtered.filter(a => a.hidden), [filtered]);
+  const hiddenCount = useMemo(() => apps.filter(a => a.hidden).length, [apps]);
+
   const sections = useMemo(() => {
     const bySource = new Map();
-    for (const app of filtered) {
+    for (const app of visibleApps) {
       if (!bySource.has(app.source)) bySource.set(app.source, []);
       bySource.get(app.source).push(app);
     }
@@ -104,9 +124,9 @@ const DashboardApp = () => {
         label: SOURCE_META[source]?.label || source,
         items,
       }));
-  }, [filtered]);
+  }, [visibleApps]);
 
-  const total = apps.length;
+  const total = visibleApps.length;
 
   return (
     <div className="min-h-screen">
@@ -135,6 +155,17 @@ const DashboardApp = () => {
             <RefreshCw className={`w-4 h-4 ${syncing ? 'animate-spin' : ''}`} />
             {syncing ? 'Syncing...' : 'Sync Now'}
           </button>
+
+          {hiddenCount > 0 && (
+            <button
+              onClick={() => setShowHidden(v => !v)}
+              title={`${hiddenCount} hidden`}
+              className={`flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-lg transition-colors whitespace-nowrap ${showHidden ? 'bg-primary/20 text-primary' : 'text-muted hover:text-foreground'}`}
+            >
+              <Eye className="w-4 h-4" />
+              {hiddenCount}
+            </button>
+          )}
         </div>
       </nav>
 
@@ -148,7 +179,14 @@ const DashboardApp = () => {
           </div>
         )}
 
-        {!loading && !error && total === 0 && (
+        {!loading && !error && total === 0 && hiddenApps.length > 0 && (
+          <div className="glass-card rounded-xl p-12 text-center">
+            <h2 className="text-xl font-bold mb-2">All apps hidden</h2>
+            <p className="text-muted">Use the eye button in the header to bring them back.</p>
+          </div>
+        )}
+
+        {!loading && !error && total === 0 && hiddenApps.length === 0 && (
           <div className="glass-card rounded-xl p-12 text-center">
             <h2 className="text-xl font-bold mb-2">No apps yet</h2>
             <p className="text-muted mb-6">
@@ -158,7 +196,7 @@ const DashboardApp = () => {
           </div>
         )}
 
-        {!loading && !error && total > 0 && filtered.length === 0 && (
+        {!loading && !error && total > 0 && visibleApps.length === 0 && (
           <p className="text-muted text-center py-24">No apps match "{query}"</p>
         )}
 
@@ -171,33 +209,71 @@ const DashboardApp = () => {
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
                 {items.map(app => (
-                  <a
+                  <div
                     key={app.id}
-                    href={app.url}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="glass-card hover-lift rounded-xl p-5 flex items-start gap-3 group"
+                    className="glass-card hover-lift rounded-xl p-5 flex items-start gap-3 group relative"
                   >
-                    <AppIcon app={app} />
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2">
-                        <span
-                          className={`w-2 h-2 rounded-full flex-shrink-0 ${app.status === 'online' ? 'bg-emerald-400' : 'bg-zinc-600'}`}
-                        />
-                        <h3 className="font-semibold truncate group-hover:text-primary transition-colors">
-                          {app.name}
-                        </h3>
+                    <button
+                      onClick={() => setHidden(app, true)}
+                      title="Hide this app"
+                      className="absolute top-2 right-2 p-1.5 rounded-md text-muted opacity-0 group-hover:opacity-100 hover:text-red-400 hover:bg-white/5 transition-all"
+                    >
+                      <EyeOff className="w-4 h-4" />
+                    </button>
+                    <a href={app.url} target="_blank" rel="noreferrer" className="flex items-start gap-3 min-w-0 flex-1">
+                      <AppIcon app={app} />
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2 pr-5">
+                          <span
+                            className={`w-2 h-2 rounded-full flex-shrink-0 ${app.status === 'online' ? 'bg-emerald-400' : 'bg-zinc-600'}`}
+                          />
+                          <h3 className="font-semibold truncate group-hover:text-primary transition-colors">
+                            {app.name}
+                          </h3>
+                        </div>
+                        <p className="text-xs text-muted truncate mt-1">
+                          {app.url.replace(/^https?:\/\//, '')}
+                        </p>
                       </div>
-                      <p className="text-xs text-muted truncate mt-1">
-                        {app.url.replace(/^https?:\/\//, '')}
-                      </p>
-                    </div>
-                    <ExternalLink className="w-4 h-4 text-muted opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0 mt-1" />
-                  </a>
+                      <ExternalLink className="w-4 h-4 text-muted opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0 mt-1" />
+                    </a>
+                  </div>
                 ))}
               </div>
             </section>
           ))}
+
+          {showHidden && hiddenApps.length > 0 && (
+            <section>
+              <div className="flex items-baseline gap-3 mb-4">
+                <h2 className="text-lg font-bold tracking-tight text-muted">Hidden</h2>
+                <span className="text-xs text-muted">{hiddenApps.length}</span>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 opacity-60">
+                {hiddenApps.map(app => (
+                  <div
+                    key={app.id}
+                    className="glass-card rounded-xl p-5 flex items-start gap-3 group relative"
+                  >
+                    <button
+                      onClick={() => setHidden(app, false)}
+                      title="Unhide this app"
+                      className="absolute top-2 right-2 p-1.5 rounded-md text-muted opacity-0 group-hover:opacity-100 hover:text-primary hover:bg-white/5 transition-all"
+                    >
+                      <Eye className="w-4 h-4" />
+                    </button>
+                    <AppIcon app={app} />
+                    <div className="min-w-0 flex-1">
+                      <h3 className="font-semibold truncate">{app.name}</h3>
+                      <p className="text-xs text-muted truncate mt-1">
+                        {app.url.replace(/^https?:\/\//, '')}
+                      </p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
         </div>
       </main>
     </div>

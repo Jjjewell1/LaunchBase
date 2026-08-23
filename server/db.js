@@ -35,10 +35,15 @@ db.exec(`
 
 export function initDb() { /* ensured by schema above */ }
 
-export async function getApps() {
+export async function getApps({ includeHidden = true } = {}) {
+  const where = includeHidden ? '' : 'WHERE hidden = 0';
   return db.prepare(
-    'SELECT id, name, source, url, internal_url, icon, status, last_seen, hidden, "order" FROM apps WHERE hidden = 0 ORDER BY source, "order", name'
+    `SELECT id, name, source, url, internal_url, icon, status, last_seen, hidden, "order" FROM apps ${where} ORDER BY source, "order", name`
   ).all();
+}
+
+export function getAppById(id) {
+  return db.prepare('SELECT * FROM apps WHERE id = ?').get(id);
 }
 
 export function upsertApp(name, source, url, internal_url = null, icon = null) {

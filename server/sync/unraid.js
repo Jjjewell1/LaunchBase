@@ -46,7 +46,7 @@ export async function syncUnraid() {
             if (containerName.startsWith('_')) continue;
 
             const displayName = containerName.replace(/_/g, ' ').trim();
-            results.push(addApp(displayName, 'unraid', internalUrl || `http://${host}:8080`, internalUrl, `unraid-${containerName}`));
+            results.push(addApp(displayName, 'unraid', internalUrl || `http://${host}:8080`, internalUrl, null));
           }
         });
 

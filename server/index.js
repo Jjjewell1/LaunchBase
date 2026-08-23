@@ -7,7 +7,7 @@ import { syncCoolify } from './sync/coolify.js';
 import { syncCloudflare } from './sync/cloudflare.js';
 import { syncUnraid } from './sync/unraid.js';
 import { syncIcons } from './sync/icons.js';
-import { getApps } from './db.js';
+import { getApps, getAppById, updateApp } from './db.js';
 
 const lastSync = { startedAt: null, finishedAt: null, results: {} };
 
@@ -40,11 +40,32 @@ app.use('/api/icons', express.static(path.join('data', 'icons'), { maxAge: '7d' 
 
 app.get('/api/apps', async (req, res) => {
   try {
-    const apps = await getApps();
+    const apps = await getApps({ includeHidden: req.query.all === '1' ? false : true });
     res.json(apps);
   } catch (err) {
     console.error('API error:', err);
     res.status(500).json({ error: 'Failed to fetch apps' });
+  }
+});
+
+// Per-app preferences (hide/unhide, icon override)
+app.patch('/api/apps/:id', async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (!Number.isInteger(id)) return res.status(400).json({ error: 'Invalid id' });
+
+  const allowed = {};
+  if ('hidden' in req.body) allowed.hidden = req.body.hidden ? 1 : 0;
+  if ('icon' in req.body) allowed.icon = String(req.body.icon || '');
+  if (Object.keys(allowed).length === 0) return res.status(400).json({ error: 'Nothing to update' });
+
+  try {
+    if (!getAppById(id)) return res.status(404).json({ error: 'App not found' });
+    await updateApp(id, allowed);
+    const app = await getAppById(id);
+    res.json(app);
+  } catch (err) {
+    console.error('Update error:', err);
+    res.status(500).json({ error: 'Failed to update app' });
   }
 });
 
