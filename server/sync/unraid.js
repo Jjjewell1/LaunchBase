@@ -14,17 +14,7 @@ export async function syncUnraid() {
   }
 
   return new Promise((resolve, reject) => {
-    const conn = new Client({
-      host,
-      port,
-      user,
-      password,
-      agent: process.env.SSH_AUTH_SOCK
-    });
-
-    if (privateKey) {
-      conn.privateKey(privateKey, (pubkey) => pubkey);
-    }
+    const conn = new Client();
 
     conn.on('ready', () => {
       console.log(`Unraid SSH connected to ${host}`);
@@ -73,6 +63,13 @@ export async function syncUnraid() {
       reject(err);
     });
 
-    conn.connect();
+    conn.connect({
+      host,
+      port,
+      username: user,
+      password: password || undefined,
+      privateKey: privateKey || undefined,
+      readyTimeout: 20000,
+    });
   });
 }
