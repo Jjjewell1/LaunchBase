@@ -1,16 +1,6 @@
-version: '3.8'
-
 services:
   frontend:
     build: .
-    networks:
-      - default
-      - coolify
-    labels:
-      - traefik.enable=true
-      - traefik.http.routers.launchbase.rule=Host(`launchbase.jewellcore.com`)
-      - traefik.http.routers.launchbase.entrypoints=http
-      - traefik.http.services.launchbase.loadbalancer.server.port=80
     environment:
       - NODE_ENV=production
     depends_on:
@@ -19,14 +9,6 @@ services:
 
   backend:
     build: ./server
-    networks:
-      - default
-      - coolify
-    labels:
-      - traefik.enable=true
-      - traefik.http.routers.launchbase-api.rule=Host(`launchbase-api.jewellcore.com`)
-      - traefik.http.routers.launchbase-api.entrypoints=http
-      - traefik.http.services.launchbase-api.loadbalancer.server.port=5000
     environment:
       - COOLIFY_BASE_URL=${COOLIFY_BASE_URL}
       - COOLIFY_API_TOKEN=${COOLIFY_API_TOKEN}
@@ -43,7 +25,3 @@ services:
 
 volumes:
   launchbase-data:
-
-networks:
-  coolify:
-    external: true
