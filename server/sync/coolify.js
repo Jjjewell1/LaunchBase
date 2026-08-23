@@ -1,5 +1,30 @@
 import axios from 'axios';
-import { addApp } from '../db.js';
+import { upsertApp } from '../db.js';
+
+function cleanName(raw) {
+  // Coolify compose app names look like "launch-base:master-w78j4xceyb62trikpnboqvcl"
+  let n = String(raw || 'Unknown').split(':')[0];
+  n = n.replace(/[-_]+/g, ' ').trim();
+  return n.replace(/\b\w/g, c => c.toUpperCase()) || 'Unknown';
+}
+
+function firstDomain(domains) {
+  if (!domains) return null;
+  const d = Array.isArray(domains) ? domains[0] : String(domains).split(',')[0];
+  return d ? d.trim().replace(/\/$/, '') : null;
+}
+
+async function fetchList(baseUrl, token, path) {
+  try {
+    const res = await axios.get(`${baseUrl}/api/v1/${path}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    return res.data || [];
+  } catch (err) {
+    console.error(`Coolify ${path} error:`, err.response?.status || '', err.message);
+    return [];
+  }
+}
 
 export async function syncCoolify() {
   const baseUrl = process.env.COOLIFY_BASE_URL;
@@ -10,22 +35,27 @@ export async function syncCoolify() {
     return;
   }
 
-  try {
-    const appsRes = await axios.get(`${baseUrl}/api/v1/applications`, {
-      headers: { Authorization: `Bearer ${token}` }
-    });
-    const apps = appsRes.data || [];
+  let total = 0;
 
-    for (const app of apps) {
-      const name = app.name || app.fqdn || 'Unknown';
-      const url = app.fqdn || app.domains?.[0] || `${baseUrl}/app/${app.id}`;
-      const internalUrl = app.dockerCompose?.services?.[0]?.image || null;
-
-      await addApp(name, 'coolify', url, internalUrl, `coolify-${app.id}`);
-    }
-
-    console.log(`Coolify sync complete: ${apps.length} apps processed`);
-  } catch (err) {
-    console.error('Coolify sync error:', err.message);
+  // Applications
+  for (const app of await fetchList(baseUrl, token, 'applications')) {
+    const url = firstDomain(app.fqdn) || firstDomain(app.domains) || `${baseUrl}/application/${app.uuid}`;
+    await upsertApp(cleanName(app.name), 'coolify', url, null, null);
+    total++;
   }
+
+  // Services
+  for (const svc of await fetchList(baseUrl, token, 'services')) {
+    const url = firstDomain(svc.domains) || firstDomain(svc.fqdn) || `${baseUrl}/service/${svc.uuid}`;
+    await upsertApp(cleanName(svc.name), 'coolify-service', url, null, null);
+    total++;
+  }
+
+  // Databases (no public URLs — card links into Coolify)
+  for (const dbn of await fetchList(baseUrl, token, 'databases')) {
+    await upsertApp(cleanName(dbn.name), 'coolify-database', `${baseUrl}/database/${dbn.uuid}`, null, null);
+    total++;
+  }
+
+  console.log(`Coolify sync complete: ${total} items processed`);
 }

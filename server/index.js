@@ -2,6 +2,7 @@ import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
 import http from 'http';
+import path from 'path';
 import { syncCoolify } from './sync/coolify.js';
 import { syncCloudflare } from './sync/cloudflare.js';
 import { syncUnraid } from './sync/unraid.js';
@@ -17,6 +18,7 @@ const port = process.env.PORT || 5000;
 
 app.use(cors());
 app.use(express.json());
+app.use('/api/icons', express.static(path.join('data', 'icons'), { maxAge: '7d' }));
 
 app.get('/api/apps', async (req, res) => {
   try {
@@ -45,6 +47,12 @@ app.post('/api/sync/now', async (req, res) => {
 
 // Initial sync on server start
 syncAll().catch(err => console.error('Initial sync failed:', err));
+
+// Auto-discovery: resync every 10 minutes so new apps appear automatically
+const SYNC_INTERVAL = 10 * 60 * 1000;
+setInterval(() => {
+  syncAll().catch(err => console.error('Scheduled sync failed:', err));
+}, SYNC_INTERVAL);
 
 const server = http.createServer(app);
 server.listen(port, () => {

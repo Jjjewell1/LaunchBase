@@ -1,224 +1,204 @@
-import React, { useEffect, useState } from 'react';
-import { Database, Server, Cloud, Zap, Layout, Shield } from 'lucide-react';
-
+import React, { useEffect, useMemo, useState } from 'react';
+import { RefreshCw, Search, ExternalLink } from 'lucide-react';
 import './index.css';
+
+const SOURCE_META = {
+  coolify: { label: 'Apps', order: 0 },
+  'coolify-service': { label: 'Services', order: 1 },
+  'coolify-database': { label: 'Databases', order: 2 },
+  cloudflare: { label: 'Tunnel Hostnames', order: 3 },
+  unraid: { label: 'Unraid Containers', order: 4 },
+};
+
+function AppIcon({ app }) {
+  const [failed, setFailed] = useState(false);
+  const slug = app.icon && app.icon !== 'default' ? app.icon : null;
+
+  if (!slug || failed) {
+    return (
+      <div className="w-10 h-10 rounded-lg bg-primary/15 text-primary flex items-center justify-center font-bold text-lg flex-shrink-0">
+        {(app.name || '?').charAt(0).toUpperCase()}
+      </div>
+    );
+  }
+  return (
+    <img
+      src={`/api/icons/${slug}.svg`}
+      alt=""
+      className="w-10 h-10 p-1.5 flex-shrink-0"
+      loading="lazy"
+      onError={() => setFailed(true)}
+    />
+  );
+}
 
 const DashboardApp = () => {
   const [apps, setApps] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [syncing, setSyncing] = useState(false);
+  const [query, setQuery] = useState('');
   const [error, setError] = useState(null);
 
-  useEffect(() => {
-    fetchApps();
-    const interval = setInterval(fetchApps, 5 * 60 * 1000); // 5 min
-    return () => clearInterval(interval);
-  }, []);
-
   const fetchApps = async () => {
-    setLoading(true);
     try {
-      const res = await fetch('/api/apps', {
-        credentials: 'include',
-      });
-      const data = await res.json();
-      setApps(data);
+      const res = await fetch('/api/apps');
+      if (!res.ok) throw new Error(`API ${res.status}`);
+      setApps(await res.json());
       setError(null);
     } catch (err) {
       setError(err.message);
-      console.error('Failed to fetch apps:', err);
     } finally {
       setLoading(false);
     }
   };
 
-  const handleSync = async (e) => {
-    e.preventDefault();
+  useEffect(() => {
+    fetchApps();
+    const interval = setInterval(fetchApps, 60 * 1000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const handleSync = async () => {
     const secret = prompt('Enter sync secret:');
     if (!secret) return;
+    setSyncing(true);
     try {
-      await fetch('/api/sync/now', {
+      const res = await fetch('/api/sync/now', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ secret }),
-        credentials: 'include',
       });
-      fetchApps();
+      if (res.status === 403) {
+        alert('Sync failed: invalid secret');
+        return;
+      }
+      if (!res.ok) {
+        alert('Sync failed: server error ' + res.status);
+        return;
+      }
+      await fetchApps();
+      alert('Sync complete — dashboard updated');
     } catch (err) {
       alert('Sync failed: ' + err.message);
+    } finally {
+      setSyncing(false);
     }
   };
 
-  if (loading) {
-    return <div className="min-h-screen flex items-center justify-center p-8">Loading...</div>;
-  }
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return q ? apps.filter(a => a.name.toLowerCase().includes(q)) : apps;
+  }, [apps, query]);
 
-  if (error) {
-    return <div className="min-h-screen p-8">Error: {error}</div>;
-  }
+  const sections = useMemo(() => {
+    const bySource = new Map();
+    for (const app of filtered) {
+      if (!bySource.has(app.source)) bySource.set(app.source, []);
+      bySource.get(app.source).push(app);
+    }
+    return [...bySource.entries()]
+      .sort((a, b) =>
+        (SOURCE_META[a[0]]?.order ?? 99) - (SOURCE_META[b[0]]?.order ?? 99))
+      .map(([source, items]) => ({
+        source,
+        label: SOURCE_META[source]?.label || source,
+        items,
+      }));
+  }, [filtered]);
 
-  // Group apps by source
-  const grouped = {
-    coolify: apps.filter(a => a.source === 'coolify'),
-    coolifyService: apps.filter(a => a.source === 'coolify-service'),
-    coolifyDatabase: apps.filter(a => a.source === 'coolify-database'),
-    cloudflare: apps.filter(a => a.source === 'cloudflare'),
-    unraid: apps.filter(a => a.source === 'unraid'),
-  };
-
-  // Icon mapping by source
-  const sourceIcons = {
-    coolify: <Database className="w-6 h-6 text-primary" />,
-    coolifyService: <Server className="w-6 h-6 text-primary" />,
-    coolifyDatabase: <Database className="w-6 h-6 text-primary" />,
-    cloudflare: <Cloud className="w-6 h-6 text-primary" />,
-    unraid: <Zap className="w-6 h-6 text-primary" />,
-  };
+  const total = apps.length;
 
   return (
-    <div className="min-h-screen bg-background font-background text-foreground">
-      <nav class="glass-nav fixed top-0 left-0 right-0 z-50 border-b border-border">
-        <div class="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
-          <a href="#" class="font-medium tracking-tighter text-lg">
-            <span class="gradient-accent">LaunchBase</span>
+    <div className="min-h-screen">
+      <nav className="glass-nav fixed top-0 left-0 right-0 z-50 border-b border-white/10">
+        <div className="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between gap-4">
+          <a href="#" className="font-medium tracking-tighter text-lg whitespace-nowrap">
+            <span className="gradient-accent">LaunchBase</span>
           </a>
-          <ul class="hidden md:flex items-center gap-6">
-            <li><a href="#features" class="relative text-sm font-medium hover:text-primary transition-colors">Features</a></li>
-            <li><a href="#about" class="relative text-sm font-medium hover:text-primary transition-colors">About</a></li>
-          </ul>
-          <div class="flex items-center gap-3">
-            <button class="glass-card px-4 py-2 text-sm font-medium rounded-full border border-border hover:border-primary transition-colors">
-              Get Started
-            </button>
-            <button
-              onClick={handleSync}
-              class="px-4 py-2 text-sm font-medium rounded-lg bg-primary/10 text-primary hover:bg-primary/20 transition-colors"
-            >
-              Sync Now
-            </button>
+
+          <div className="relative flex-1 max-w-md hidden sm:block">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted" />
+            <input
+              type="text"
+              value={query}
+              onChange={e => setQuery(e.target.value)}
+              placeholder={`Search ${total} apps...`}
+              className="w-full glass-card rounded-full pl-9 pr-4 py-2 text-sm bg-transparent outline-none focus:border-primary/50 placeholder:text-muted"
+            />
           </div>
+
+          <button
+            onClick={handleSync}
+            disabled={syncing}
+            className="flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg bg-primary/10 text-primary hover:bg-primary/20 transition-colors disabled:opacity-50 whitespace-nowrap"
+          >
+            <RefreshCw className={`w-4 h-4 ${syncing ? 'animate-spin' : ''}`} />
+            {syncing ? 'Syncing...' : 'Sync Now'}
+          </button>
         </div>
       </nav>
 
-      <main class="pt-32 md:pt-48 lg:pt-64">
-        <section class="py-24 bg-card/80">
-          <div class="max-w-7xl mx-auto px-6">
-            <h1 class="text-5xl md:text-7xl lg:text-8xl font-extrabold leading-tight tracking-tight gradient-accent mb-6">
-              Manage your <br />
-              <span class="block">homelab</span>
-            </h1>
-            <p class="text-lg md:text-xl max-w-2xl mx-auto text-muted-foreground leading-relaxed mb-8">
-              A unified dashboard for Cloudflare tunnels, Coolify services, and Unraid containers.
+      <main className="pt-24 pb-16 px-6 max-w-7xl mx-auto">
+        {loading && <p className="text-muted text-center py-24">Loading apps...</p>}
+
+        {!loading && error && (
+          <div className="glass-card rounded-xl p-8 text-center">
+            <p className="text-red-400 mb-2">Couldn't reach the API: {error}</p>
+            <button onClick={fetchApps} className="text-primary hover:underline text-sm">Retry</button>
+          </div>
+        )}
+
+        {!loading && !error && total === 0 && (
+          <div className="glass-card rounded-xl p-12 text-center">
+            <h2 className="text-xl font-bold mb-2">No apps yet</h2>
+            <p className="text-muted mb-6">
+              Hit <span className="text-primary font-medium">Sync Now</span> and enter the sync secret to pull in
+              your Coolify apps, Cloudflare tunnels, and Unraid containers.
             </p>
           </div>
-        </section>
+        )}
 
-        <section id="features" class="py-24 relative">
-          <div class="max-w-7xl mx-auto px-6">
-            <h2 class="text-4xl md:text-5xl font-extrabold tracking-tight gradient-accent mb-12 text-center">Features</h2>
-            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              <article class="glass-card hover-lift rounded-xl p-8">
-                <div class="w-12 h-12 rounded-xl flex items-center justify-center mb-6">
-                  <Database className="w-6 h-6 text-primary" />
-                </div>
-                <h3 class="font-bold text-xl mb-3">Unraid Integration</h3>
-                <p class="text-muted-foreground leading-relaxed">
-                  Discover and monitor all your Docker containers via SSH. Pull names, images, ports, and running status automatically.
-                </p>
-              </article>
+        {!loading && !error && total > 0 && filtered.length === 0 && (
+          <p className="text-muted text-center py-24">No apps match "{query}"</p>
+        )}
 
-              <article class="glass-card hover-lift rounded-xl p-8">
-                <div class="w-12 h-12 rounded-xl flex items-center justify-center mb-6">
-                  <Server className="w-6 h-6 text-primary" />
-                </div>
-                <h3 class="font-bold text-xl mb-3">Coolify API</h3>
-                <p class="text-muted-foreground leading-relaxed">
-                  List applications, services, and databases from your Coolify instance. Full Bearer token authentication.
-                </p>
-              </article>
-
-              <article class="glass-card hover-lift rounded-xl p-8">
-                <div class="w-12 h-12 rounded-xl flex items-center justify-center mb-6">
-                  <Cloud className="w-6 h-6 text-primary" />
-                </div>
-                <h3 class="font-bold text-xl mb-3">Cloudflare Tunnels</h3>
-                <p class="text-muted-foreground leading-relaxed">
-                  Poll Cloudflare tunnel configurations for ingress rules. Get hostname to service mappings automatically.
-                </p>
-              </article>
-
-              <article class="glass-card hover-lift rounded-xl p-8">
-                <div class="w-12 h-12 rounded-xl flex items-center justify-center mb-6">
-                  <Zap className="w-6 h-6 text-primary" />
-                </div>
-                <h3 class="font-bold text-xl mb-3">Auto-Discovery</h3>
-                <p class="text-muted-foreground leading-relaxed">
-                  Scheduled sync with configurable intervals. Inbound webhook endpoint to trigger instant resync on new app deployments.
-                </p>
-              </article>
-
-              <article class="glass-card hover-lift rounded-xl p-8">
-                <div class="w-12 h-12 rounded-xl flex items-center justify-center mb-6">
-                  <Layout className="w-6 h-6 text-primary" />
-                </div>
-                <h3 class="font-bold text-xl mb-3">Smart Card Layout</h3>
-                <p class="text-muted-foreground leading-relaxed">
-                  Group cards by source, search/filter, hide/unhide, reorder via drag — all preferences persist locally.
-                </p>
-              </article>
-
-              <article class="glass-card hover-lift rounded-xl p-8">
-                <div class="w-12 h-12 rounded-xl flex items-center justify-center mb-6">
-                  <Shield className="w-6 h-6 text-primary" />
-                </div>
-                <h3 class="font-bold text-xl mb-3">Secure by Design</h3>
-                <p class="text-muted-foreground leading-relaxed">
-                  All credentials stored in .env. Scoped API tokens. Webhook protected by shared secret.
-                </p>
-              </article>
-            </div>
-          </div>
-        </section>
-
-        <section id="about" class="py-24 bg-card/80">
-          <div class="max-w-7xl mx-auto px-6 grid lg:grid-cols-2 gap-12 items-center">
-            <div>
-              <h2 class="text-4xl md:text-5xl font-extrabold tracking-tight gradient-accent mb-6">Built for <span class="italic">your</span> homelab</h2>
-              <p class="text-lg md:text-xl text-muted-foreground leading-relaxed mb-6">
-                Pull apps from Cloudflare, Coolify, and Unraid into one dashboard. Auto-discovery pulls new apps automatically. Schedule syncs or trigger them via webhook.
-              </p>
-              <ul class="space-y-4 text-muted-foreground">
-                <li class="flex items-start gap-3">
-                  <span class="text-primary flex-shrink-0">
-                    <i dangerouslySetInnerHTML={{ __html: '<svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.21L2 9.23l6.9-1.21L12 2z"/></svg>' }} />
-                  </span>
-                  <span>Real-time status cards with online/offline indicators</span>
-                </li>
-                <li class="flex items-start gap-3">
-                  <span class="text-primary flex-shrink-0">
-                    <i dangerouslySetInnerHTML={{ __html: '<svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zM12 22c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8z"/></svg>' }} />
-                  </span>
-                  <span>Self-hosted icons from homarr-labs/dashboard-icons</span>
-                </li>
-                <li class="flex items-start gap-3">
-                  <span class="text-primary flex-shrink-0">
-                    <i dangerouslySetInnerHTML={{ __html: '<svg xmlns="http://www3.org/2000/svg" class="h-4 w-4" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zM12 22c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8z"/></svg>' }} />
-                  </span>
-                  <span>Drag to reorder, hide, or rename cards</span>
-                </li>
-              </ul>
-            </div>
-            <div class="relative">
-              <div class="relative">
-                <img
-                  src="https://images.unsplash.com/photo-1618709268585-8637d597a195e8f3?w=600&h=400&fit=crop&q=80"
-                  alt="Dashboard mockup"
-                  class="w-full h-64 object-cover rounded-2xl"
-                />
-                <div class="absolute inset-0 bg-gradient-to-t from-primary/20 to-transparent opacity-80 rounded-2xl"></div>
+        <div className="space-y-12">
+          {sections.map(({ source, label, items }) => (
+            <section key={source}>
+              <div className="flex items-baseline gap-3 mb-4">
+                <h2 className="text-lg font-bold tracking-tight">{label}</h2>
+                <span className="text-xs text-muted">{items.length}</span>
               </div>
-            </div>
-          </div>
-        </section>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                {items.map(app => (
+                  <a
+                    key={app.id}
+                    href={app.url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="glass-card hover-lift rounded-xl p-5 flex items-start gap-3 group"
+                  >
+                    <AppIcon app={app} />
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2">
+                        <span
+                          className={`w-2 h-2 rounded-full flex-shrink-0 ${app.status === 'online' ? 'bg-emerald-400' : 'bg-zinc-600'}`}
+                        />
+                        <h3 className="font-semibold truncate group-hover:text-primary transition-colors">
+                          {app.name}
+                        </h3>
+                      </div>
+                      <p className="text-xs text-muted truncate mt-1">
+                        {app.url.replace(/^https?:\/\//, '')}
+                      </p>
+                    </div>
+                    <ExternalLink className="w-4 h-4 text-muted opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0 mt-1" />
+                  </a>
+                ))}
+              </div>
+            </section>
+          ))}
+        </div>
       </main>
     </div>
   );
