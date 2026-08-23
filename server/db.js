@@ -17,17 +17,20 @@ db.exec(`
     created_at TEXT DEFAULT (datetime('now')),
     updated_at TEXT DEFAULT (datetime('now'))
   );
-
-  CREATE UNIQUE INDEX IF NOT EXISTS idx_apps_source_url ON apps(source, url);
-  CREATE INDEX IF NOT EXISTS idx_apps_hidden ON apps(hidden);
 `);
 
-// One-time cleanup of duplicates created by earlier non-upsert inserts
+// Deduplicate legacy rows FIRST (unique index below would fail otherwise),
+// then enforce uniqueness so upserts work
 db.exec(`
   DELETE FROM apps
   WHERE id NOT IN (
     SELECT MIN(id) FROM apps GROUP BY source, url
   );
+`);
+
+db.exec(`
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_apps_source_url ON apps(source, url);
+  CREATE INDEX IF NOT EXISTS idx_apps_hidden ON apps(hidden);
 `);
 
 export function initDb() { /* ensured by schema above */ }
