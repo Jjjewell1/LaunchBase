@@ -2,11 +2,15 @@ import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
 import http from 'http';
-import './sync/coolify.js';
-import './sync/cloudflare.js';
-import './sync/unraid.js';
-import './sync/icons.js';
+import { syncCoolify } from './sync/coolify.js';
+import { syncCloudflare } from './sync/cloudflare.js';
+import { syncUnraid } from './sync/unraid.js';
+import { syncIcons } from './sync/icons.js';
 import { getApps } from './db.js';
+
+async function syncAll() {
+  await Promise.allSettled([syncCoolify(), syncCloudflare(), syncUnraid(), syncIcons()]);
+}
 
 const app = express();
 const port = process.env.PORT || 5000;
@@ -39,8 +43,8 @@ app.post('/api/sync/now', async (req, res) => {
   }
 });
 
-// Initial sync on server start - modules run on import
-// syncCoolify, syncCloudflare, syncUnraid, syncIcons fire on import
+// Initial sync on server start
+syncAll().catch(err => console.error('Initial sync failed:', err));
 
 const server = http.createServer(app);
 server.listen(port, () => {
