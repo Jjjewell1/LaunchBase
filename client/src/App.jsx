@@ -12,6 +12,7 @@ const SOURCE_META = {
 
 function AppIcon({ app }) {
   const [failed, setFailed] = useState(false);
+  const [cdn, setCdn] = useState(false);
   const slug = app.icon && app.icon !== 'default' ? app.icon : null;
 
   if (!slug || failed) {
@@ -21,13 +22,16 @@ function AppIcon({ app }) {
       </div>
     );
   }
+  const src = cdn
+    ? `https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons@main/svg/${slug}.svg`
+    : `/api/icons/${slug}.svg`;
   return (
     <img
-      src={`/api/icons/${slug}.svg`}
+      src={src}
       alt=""
       className="w-10 h-10 p-1.5 flex-shrink-0"
       loading="lazy"
-      onError={() => setFailed(true)}
+      onError={() => (cdn ? setFailed(true) : setCdn(true))}
     />
   );
 }

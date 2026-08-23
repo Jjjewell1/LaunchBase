@@ -5,48 +5,64 @@ import { getApps, updateApp } from '../db.js';
 
 const ICONS_DIR = path.join('data', 'icons');
 const METADATA_URL = 'https://raw.githubusercontent.com/homarr-labs/dashboard-icons/refs/heads/main/metadata.json';
-const CONCURRENCY = 10;
+// Icons live at svg/<slug>.svg in the dashboard-icons repo
+const SVG_URLS = [
+  slug => `https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons@main/svg/${slug}.svg`,
+  slug => `https://raw.githubusercontent.com/homarr-labs/dashboard-icons/main/svg/${slug}.svg`,
+];
+const CONCURRENCY = 8;
 let metadataCache = null;
 
 export async function syncIcons() {
   try {
     const metaRes = await axios.get(METADATA_URL);
-    // metadata.json format: { "<icon-name>": { name, svg, ... }, ... }
-    const metadata = metaRes.data;
-    const icons = Object.entries(metadata || {})
-      .map(([key, entry]) => ({ name: key, svg: entry?.svg }))
-      .filter(i => i.svg);
+    // metadata.json: { "<slug>": { base, aliases, categories, ... }, ... }
+    const metadata = metaRes.data || {};
+    const validSlugs = new Set(Object.keys(metadata));
 
     if (!fs.existsSync(ICONS_DIR)) {
       fs.mkdirSync(ICONS_DIR, { recursive: true });
     }
 
-    let downloaded = 0;
-    let skipped = 0;
+    metadataCache = metadata;
 
-    async function downloadOne(icon) {
-      const filePath = path.join(ICONS_DIR, `${icon.name}.svg`);
+    // Resolve names -> slugs BEFORE downloading so we only fetch what we use
+    await resolveAppIcons();
+    const apps = await getApps({ includeHidden: true });
+    const neededSlugs = [...new Set(
+      apps.filter(a => a.icon && a.icon !== 'default').map(a => a.icon)
+    )];
+
+    let downloaded = 0;
+    let cached = 0;
+    let failed = 0;
+
+    async function downloadOne(slug) {
+      const filePath = path.join(ICONS_DIR, `${slug}.svg`);
       if (fs.existsSync(filePath)) {
-        skipped++;
+        cached++;
         return;
       }
-      try {
-        const imgRes = await axios.get(icon.svg, { responseType: 'arraybuffer' });
-        fs.writeFileSync(filePath, imgRes.data);
-        downloaded++;
-      } catch {
-        // Skip individual failures
+      for (const build of SVG_URLS) {
+        try {
+          const res = await axios.get(build(slug), { responseType: 'arraybuffer', timeout: 20000 });
+          if (res.status === 200 && Buffer.isBuffer(res.data) && res.data.length > 0) {
+            fs.writeFileSync(filePath, res.data);
+            downloaded++;
+            return;
+          }
+        } catch {
+          // try next mirror
+        }
       }
+      failed++;
     }
 
-    for (let i = 0; i < icons.length; i += CONCURRENCY) {
-      await Promise.all(icons.slice(i, i + CONCURRENCY).map(downloadOne));
+    for (let i = 0; i < neededSlugs.length; i += CONCURRENCY) {
+      await Promise.all(neededSlugs.slice(i, i + CONCURRENCY).map(downloadOne));
     }
 
-    console.log(`Icons sync: ${downloaded} downloaded, ${skipped} cached, ${icons.length} total`);
-
-    metadataCache = metadata;
-    await resolveAppIcons();
+    console.log(`Icons sync: ${downloaded} downloaded, ${cached} cached, ${failed} failed, ${validSlugs.size} known slugs, ${neededSlugs.length} in use`);
   } catch (err) {
     console.error('Icons sync error:', err.message);
   }
@@ -57,10 +73,8 @@ function normalize(s) {
 }
 
 // Match each app's name to a dashboard-icons slug and persist it.
-// Re-runs every sync: fills missing icons and replaces slugs that don't exist
-// in the icon set (e.g. legacy "unraid-<container>" placeholders).
 export async function resolveAppIcons() {
-  if (!metadataCache) return;
+  if (!metadataCache) return [];
   try {
     const apps = await getApps({ includeHidden: true });
     const keys = Object.keys(metadataCache);
